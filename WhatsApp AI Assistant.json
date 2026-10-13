@@ -1,0 +1,3892 @@
+{
+  "name": "WhatsApp AI Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "wa-assistant",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e3c08814-7501-4bf5-9b7a-9f5d90dc4944",
+      "name": "Webhook GET (Meta verify)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        48,
+        432
+      ],
+      "webhookId": "de60a8c3-ad18-4026-b83f-53f9828e65df"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "53db0e24-8e38-459f-8959-c84667f1849d",
+              "leftValue": "={{ $json.query['hub.mode'] }}",
+              "rightValue": "subscribe",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "29d28b5b-3a23-4274-a3f1-7fb9416a830f",
+              "leftValue": "={{ $json.query['hub.verify_token'] }}",
+              "rightValue": "F0fhUx8CMNTzyH0KXu5vBsWFkJyvyRz2",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "32fe15c9-ff9f-4c67-80ce-8de5aefa90e8",
+      "name": "Verify Token OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        240,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query['hub.challenge'] }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "7f52954d-fc87-4e41-9616-c52f3fada407",
+      "name": "Return Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        464,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Forbidden",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "5a5a52d8-ea08-4048-ba6d-5d1596e3fab9",
+      "name": "Reject 403",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        464,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-assistant",
+        "options": {}
+      },
+      "id": "a9dd5f4e-7cc7-40a0-9ea0-4a0988a62a60",
+      "name": "Webhook POST (messages)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        48,
+        672
+      ],
+      "webhookId": "3c76cf53-d7c8-4d72-8690-765f7f09e70b"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turns a WhatsApp Cloud API webhook into one item per customer message.\n// Status updates (sent/delivered/read) are dropped. No items = workflow stops.\nconst out = [];\nfor (const item of $input.all()) {\n  const body = item.json.body || {};\n  for (const entry of body.entry || []) {\n    for (const change of entry.changes || []) {\n      const v = change.value || {};\n      if (!Array.isArray(v.messages)) continue; // statuses, errors, etc.\n      const contacts = v.contacts || [];\n      for (const m of v.messages) {\n        const c = contacts.find(x => x.wa_id === m.from) || contacts[0] || {};\n        let text = null, media_id = null, mime_type = null, caption = null;\n        switch (m.type) {\n          case 'text': text = m.text?.body ?? null; break;\n          case 'audio': media_id = m.audio?.id; mime_type = m.audio?.mime_type; break;\n          case 'image': media_id = m.image?.id; mime_type = m.image?.mime_type; caption = m.image?.caption ?? null; break;\n          case 'button': text = m.button?.text ?? null; break;\n          case 'interactive': text = m.interactive?.button_reply?.title ?? m.interactive?.list_reply?.title ?? null; break;\n        }\n        out.push({ json: {\n          phone_number_id: v.metadata?.phone_number_id,\n          display_phone_number: v.metadata?.display_phone_number,\n          wa_id: m.from,\n          profile_name: c.profile?.name ?? null,\n          message_id: m.id,\n          type: m.type,\n          text, media_id, mime_type, caption,\n          is_voice_note: m.audio?.voice ?? null,\n          timestamp: new Date(Number(m.timestamp) * 1000).toISOString(),\n        }});\n      }\n    }\n  }\n}\nreturn out;"
+      },
+      "id": "48ee001c-d351-45a3-8784-d8e3c4313658",
+      "name": "Parse Webhook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ins AS (\n  INSERT INTO processed_messages (message_id, client_id)\n  VALUES ($1, $2)\n  ON CONFLICT (message_id) DO NOTHING\n  RETURNING 1\n)\nSELECT EXISTS (SELECT 1 FROM ins) AS is_new;",
+        "options": {
+          "queryReplacement": "={{ $json.message_id }},{{ $json.phone_number_id }}"
+        }
+      },
+      "id": "85302684-9d97-4bdd-9ede-339263f2a1e1",
+      "name": "Dedupe (insert message ID)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        464,
+        672
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "5MOqathSxYYjRRsw",
+          "name": "WA App DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "061efc55-2ef0-4d09-91dd-12ba6ff0cd6e",
+              "leftValue": "={{ $json.is_new }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fcba3f0e-8095-423f-833d-72a8e8cd2a38",
+      "name": "Is New Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        656,
+        672
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "469e1c93-694e-4122-877e-ba14f8eb3700",
+      "name": "Duplicate - Ignore",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        864,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1u-274SYnHa187RRg67dyBgco9KsQ1tJIk7zgT6QrywE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "b7498767-4353-4b05-a49d-0c59bfd373fe",
+      "name": "Get Master Config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        448
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Match incoming WhatsApp number to a client row (multi-client routing)\nconst m = $('Parse Webhook').first().json;\nconst rows = $input.all().map(i => i.json);\nconst c = rows.find(r => String(r.phone_number_id).trim() === String(m.phone_number_id).trim());\nif (!c || String(c.active).toUpperCase() === 'FALSE') return []; // unknown or inactive client -> stop\nconst text_b64 = Buffer.from(String(m.text || ''), 'utf8').toString('base64');\nreturn [{ json: { ...c, ...m, client_id: c.client_id, text_b64 } }];"
+      },
+      "id": "90a42d0b-477a-4c90-9f88-27ce36aa88e1",
+      "name": "Client Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v25.0/{{ $json.phone_number_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: $json.message_id, typing_indicator: { type: 'text' } }) }}",
+        "options": {}
+      },
+      "id": "d0fab557-af37-45dc-b1d6-1d1571732bd5",
+      "name": "Mark Read + Typing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        448
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "vyYjyaCvarcaPd7c",
+          "name": "WhatsApp Cloud API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "914738a9-759d-4912-a8cd-13a9e6fc3f96",
+              "leftValue": "={{ $json.type }}",
+              "rightValue": "text",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "59cc3586-88a5-40c1-92a0-072702d7ebc3",
+      "name": "Message Type",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Stickers, documents, videos, locations etc.\nreturn { json: { ...$json, reply: 'Thank you! Main text, voice notes aur photos samajh sakti hoon. Please apna sawal type karein ya voice note bhejein. / I can read text, voice notes and photos - please type your question or send a voice note.' } };"
+      },
+      "id": "63f74aa4-a303-4fb8-b987-ebeda4316b2e",
+      "name": "Not Supported Yet",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2768,
+        1184
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO message_buffer (client_id, wa_id, message_id, text)\nVALUES ($1, $2, $3, convert_from(decode($4, 'base64'), 'UTF8'))\nON CONFLICT (message_id) DO NOTHING\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ $json.client_id }},{{ $json.wa_id }},{{ $json.message_id }},{{ $json.text_b64 }}"
+        }
+      },
+      "id": "7f76d5d5-4617-4f0a-a514-552404889b9e",
+      "name": "Buffer Message",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2192,
+        624
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "5MOqathSxYYjRRsw",
+          "name": "WA App DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 7
+      },
+      "id": "3eb6eb99-f6cf-4935-9970-f803dc7ae4ad",
+      "name": "Wait 7s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2368,
+        624
+      ],
+      "webhookId": "daa449f9-7b61-4696-918c-039718c673bc"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE((SELECT max(id) FROM message_buffer WHERE client_id = $1 AND wa_id = $2), 0) = $3::bigint AS is_latest;",
+        "options": {
+          "queryReplacement": "={{ $('Client Config').first().json.client_id }},{{ $('Client Config').first().json.wa_id }},{{ $('Buffer Message').first().json.id || 0 }}"
+        }
+      },
+      "id": "4b0e6811-fba3-4324-a716-e05bf99e747e",
+      "name": "Is Latest Message?",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2544,
+        624
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "5MOqathSxYYjRRsw",
+          "name": "WA App DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "8db01f43-a9f7-49fa-af6a-3e41667cc5fe",
+              "leftValue": "={{ $json.is_latest }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f35e62be-c15b-485b-952e-293ecaf3f486",
+      "name": "Latest?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH d AS (\n  DELETE FROM message_buffer WHERE client_id = $1 AND wa_id = $2 RETURNING id, text\n)\nSELECT string_agg(text, E'\\n' ORDER BY id) AS merged, count(*) AS n FROM d;",
+        "options": {
+          "queryReplacement": "={{ $('Client Config').first().json.client_id }},{{ $('Client Config').first().json.wa_id }}"
+        }
+      },
+      "id": "2e2b5c3b-a5f7-435c-99aa-e4d165917710",
+      "name": "Collect Messages",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2928,
+        448
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "5MOqathSxYYjRRsw",
+          "name": "WA App DB"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "f098404b-8362-4d39-941a-f726ab7f3e2e",
+      "name": "Newer Message Will Reply",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2928,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ \"[Reply in: \" + $('Build Menu').first().json.reply_language + \"]\\n\" + $('Collect Messages').first().json.merged }}",
+        "options": {
+          "systemMessage": "=You are {{ $('Client Config').first().json.agent_name }}, the WhatsApp assistant for {{ $('Client Config').first().json.business_name }} (a {{ $('Client Config').first().json.niche }}).\n\n## CONTEXT\n- Current date and time: {{ $now.setZone($('Client Config').first().json.timezone || 'Asia/Karachi').toFormat('cccc, d LLLL yyyy, h:mm a') }} ({{ $('Client Config').first().json.timezone }})\n- Tomorrow is {{ $now.setZone($('Client Config').first().json.timezone || 'Asia/Karachi').plus({ days: 1 }).toFormat('cccc, yyyy-MM-dd') }}\n- Working days: {{ $('Client Config').first().json.working_days }} | Hours: {{ $('Client Config').first().json.open_time }} - {{ $('Client Config').first().json.close_time }}. Any day not listed is a closed day.\n\n## LANGUAGE (strict)\n- Every customer message starts with a tag like [Reply in: English] or [Reply in: Roman Urdu]. This tag is decided by the system. Write your ENTIRE reply in exactly that language. Never mention the tag.\n- Roman Urdu = Urdu written in English letters. Never use Urdu script.\n- Never mix English and Roman Urdu sentences in one reply. Service names and prices stay as in the MENU.\n- Keep replies short and warm for WhatsApp (1-5 short lines). Use *single asterisks* only for a price or time, never for whole sentences.\n\n## SERVICES & PRICING (strict)\n- The MENU section at the end is loaded fresh from the salon's sheet for THIS message. It is the ONLY source of truth for services, packages, prices and durations.\n- IGNORE any service list, price or \"not on the menu\" statement from earlier in this chat; earlier answers may be outdated. Always re-check the MENU below.\n- Customers use loose words (\"men/gents haircut\", \"bridal package\", \"facial\"). Match them to the closest MENU item by meaning, and call items by their exact MENU name and type (service or package).\n- \"What services do you have?\": short summary grouped by ALL categories in the MENU with 1-2 example prices each, plus the packages, then offer full details of any category.\n- Quote prices exactly as in the MENU (PKR). Never invent a service. If something truly is not in the MENU, say so and suggest the closest item.\n- Discounts/negotiation: politely say prices are fixed as per the menu and suggest a matching package if one fits. Never promise a discount.\n\n## BOOKING FLOW\n1. Collect: service, date, preferred time, and the customer's name.\n2. Convert relative dates using the current date above (\"aaj\" = today, \"kal\" = tomorrow, \"parson\" = day after tomorrow, \"next Friday\", etc.). Times: \"subah\" = morning, \"dopahar\" = afternoon, \"shaam 5 baje\" = 17:00, \"raat 8 baje\" = 20:00.\n3. Call check_availability with the date, service and the preferred time (if given).\n   - If requested_time_free is true: that time is available, go ahead with it.\n   - If false: offer the nearest_alternatives (max 3).\n   - If no time was given: ask their preferred time, or suggest up to 3 times spread across the day.\n   - Never say a time is unavailable unless the tool returned requested_time_free = false or the day is closed.\n   - If the tool returns service_found = false, the SERVICE NAME was wrong (not the time). Pick the exact name from available_names and call check_availability again. Never invent or guess free times; only offer times that appear in free_slots or nearest_alternatives.\n4. NAME: always ask \"Booking kis naam se karni hai?\" / \"What name should I book it under?\". Never assume the WhatsApp profile name is the customer's name.\n5. Only AFTER check_availability says the time is free, send a short summary (name, service, date, time, price) and ask the customer to confirm, e.g. \"Yeh details theek hain? Confirm kar dein to booking kar deti hoon.\" / \"Shall I go ahead and book this?\".\n   - NEVER say booked, confirmed, \"confirm hai\" or \"done\" before book_appointment returns booked:true.\n6. Only after a clear yes, call book_appointment. If it returns booked:false, apologise briefly and offer the alternatives it returns.\n7. After booked:true, confirm with the booking ID, date and time.\n- Use the exact service/package name from the sheet when calling tools.\n\n\n## CANCEL / RESCHEDULE / CHECK BOOKING\n- Call find_bookings to get the customer's upcoming bookings (only bookings made from this WhatsApp number). If there are none, say so politely.\n- If there is more than one, ask which one (show service, date and time). Don't ask for the booking ID when find_bookings already shows it.\n- Cancel: confirm first (e.g. \"Kya main aapki Thursday 5 PM ki Haircut booking cancel kar doon?\"). Only after a clear yes, call cancel_booking, then confirm it is cancelled.\n- Reschedule: ask for the new date and time, call check_availability for the same service on the new date, share the new time and ask to confirm. Only after a clear yes, call reschedule_booking. If it returns rescheduled:false, offer the alternatives it returns.\n- When listing bookings keep it short, one line each, e.g. \"1) Haircut (Gents) - Thu 15 Oct, 5:00 PM\". No bold labels, and don't show booking IDs unless the customer asks.\n- Never say cancelled or rescheduled before the tool confirms it.\n\n## HUMAN HANDOFF\nCall transfer_to_human (short reason + 1-3 line summary) when:\n- the customer asks for a person, the owner, manager or staff, or wants a call;\n- the customer complains, is upset, or reports a problem with a past visit;\n- they keep asking for a discount after you explained prices are fixed, or need a group, bridal or custom quote;\n- there is a medical concern (allergy, skin condition, reaction) or something you cannot answer from the MENU or tools;\n- a tool keeps failing.\nAfter calling it, tell the customer (in their language) that a team member will reply here shortly, and stop trying to solve it yourself. Don't ask if they need anything else (the AI is paused for them after this). Do not call it for normal questions you can answer.\n\n## PHOTOS\nWhen a message contains [Customer sent a photo] and [PHOTO ANALYSIS], the analysis describes the customer's photo. Use it, but never mention \"analysis\", \"type=\" or flags to the customer; talk as if you saw the photo.\n- hair / skin / nails: describe what is visible in simple, kind words (1 line), then suggest 1-3 matching MENU services or packages with prices, and offer to book.\n- hairstyle / makeup / mehndi / nails reference: name the style, then list EVERY MENU service needed for the look (e.g. layers + highlights = Haircut AND Hair Colour) with prices. ALWAYS add one line that the final result depends on hair type/length and a quick consultation with the stylist. If the photo looks more detailed than the MENU item (e.g. intricate/bridal mehndi vs \"simple\" mehndi), say the exact price will be confirmed after seeing the design.\n- medical_flag=true or type=medical_concern: do NOT suggest any service or treatment. Kindly advise seeing a doctor/dermatologist first and call transfer_to_human so a team member contacts them.\n- unclear: ask for a clearer, well-lit photo. unrelated: politely say you can help with hair, skin, nails, makeup and mehndi photos.\n- If confidence=low, describe cautiously (\"lagta hai\" / \"it looks like\") and ask a short question to confirm.\n- Never promise guaranteed results. Never identify or comment on the person's identity, age, body or looks. Never give medical advice.\n\n## RULES\n- Only help with this salon's services, prices, availability and bookings. Politely decline unrelated requests.\n- Never give medical advice or promise results.\n- If you don't know something, call transfer_to_human.\n\n## MENU (fresh from sheet)\n{{ $('Build Menu').first().json.menu }}\n",
+          "maxIterations": 8
+        }
+      },
+      "id": "258a0b19-be66-46de-aaea-467d76e230f7",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        3552,
+        448
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "c79305bc-1a34-4d75-8cda-e06509ae5539",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        3376,
+        640
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "PrjNV5yPCLsGr2TM",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Client Config').first().json.client_id + ':' + $('Client Config').first().json.wa_id }}",
+        "contextWindowLength": 10
+      },
+      "id": "04432e96-72ae-4a40-8bb8-1659246bed61",
+      "name": "Chat Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        3536,
+        640
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "5MOqathSxYYjRRsw",
+          "name": "WA App DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Checks appointment availability for a service on a date. ALWAYS call it before offering or confirming a time. If the customer mentioned a preferred time, pass it in time (24h HH:mm) and read requested_time_free / nearest_alternatives. Returns all free_slots for the day, opening hours and whether the salon is open.",
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/wa-tool-availability",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-wa-key",
+              "value": "R6ap2WP09Hw65PQmOrExaDH"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $('Client Config').first().json.client_id }}"
+            },
+            {
+              "name": "date",
+              "value": "={{ $fromAI('date', 'Appointment date in YYYY-MM-DD format', 'string') }}"
+            },
+            {
+              "name": "service",
+              "value": "={{ $fromAI('service', 'Exact service or package name from the sheet', 'string') }}"
+            },
+            {
+              "name": "time",
+              "value": "={{ $fromAI('time', 'Customer preferred start time in 24h HH:mm (e.g. 17:00) if they mentioned one, otherwise empty string', 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3a11c336-9b6b-4522-8db0-3901599434b1",
+      "name": "check_availability",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        3680,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Books the appointment. Only call AFTER the customer clearly confirmed name, service, date and time. Returns booked:true with booking_id, or booked:false with reason and alternatives.",
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/wa-tool-book",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-wa-key",
+              "value": "R6ap2WP09Hw65PQmOrExaDH"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $('Client Config').first().json.client_id }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $('Client Config').first().json.wa_id }}"
+            },
+            {
+              "name": "name",
+              "value": "={{ $fromAI('name', 'Customer full name', 'string') }}"
+            },
+            {
+              "name": "service",
+              "value": "={{ $fromAI('service', 'Exact service or package name from the sheet', 'string') }}"
+            },
+            {
+              "name": "date",
+              "value": "={{ $fromAI('date', 'Appointment date in YYYY-MM-DD format', 'string') }}"
+            },
+            {
+              "name": "time",
+              "value": "={{ $fromAI('time', 'Start time in 24h HH:mm format, e.g. 17:00', 'string') }}"
+            },
+            {
+              "name": "notes",
+              "value": "={{ $fromAI('notes', 'Optional notes from the customer, or empty string', 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5233c91b-f7fb-426c-9b32-84e06f76aa0c",
+      "name": "book_appointment",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        3856,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Convert Markdown to WhatsApp formatting\nconst c = $('Client Config').first().json;\nlet reply = String($json.output || '').trim()\n  .replace(/\\*\\*(.+?)\\*\\*/g, '*$1*')   // **bold** -> *bold*\n  .replace(/__(.+?)__/g, '_$1_')\n  .replace(/^#{1,6}\\s*/gm, '')          // remove headings\n  .replace(/\\[(.+?)\\]\\((https?:[^)]+)\\)/g, '$1: $2'); // [text](url) -> text: url\nif (!reply) reply = 'Sorry, kuch masla aa gaya. Please dobara message karein.';\nreturn { json: { phone_number_id: c.phone_number_id, wa_id: c.wa_id, reply } };"
+      },
+      "id": "195b60ac-af20-4c68-bd40-a2b12e3e7e08",
+      "name": "Prepare Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { phone_number_id: $json.phone_number_id, wa_id: $json.wa_id, reply: $json.reply } };"
+      },
+      "id": "9eefb7e5-0163-472f-9255-b2aa59b40a69",
+      "name": "Prepare Unsupported Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2384,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v25.0/{{ $json.phone_number_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: $json.wa_id, type: 'text', text: { preview_url: false, body: $json.reply } }) }}",
+        "options": {}
+      },
+      "id": "ff4d70da-840d-4a51-823e-1bd397ec7397",
+      "name": "Send Agent Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4032,
+        448
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "vyYjyaCvarcaPd7c",
+          "name": "WhatsApp Cloud API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Client Config').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Services",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "d3a5b201-6a8c-40ea-a40c-a5806a6991bf",
+      "name": "Load Services",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3104,
+        448
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Client Config').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Packages",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "a2e7dad7-4437-4f77-820c-5b3912b13ca5",
+      "name": "Load Packages",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3248,
+        448
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fresh menu from the client's sheet on EVERY message (single source of truth)\nconst act = r => String(r.active ?? 'TRUE').toUpperCase() !== 'FALSE';\nconst svc = $('Load Services').all().map(i => i.json).filter(r => r.service && act(r));\nconst pkg = $('Load Packages').all().map(i => i.json).filter(r => r.package && act(r));\nconst byCat = {};\nfor (const s of svc) (byCat[s.category || 'Other'] ||= []).push(s);\nlet menu = 'SERVICES (category: name | price PKR | duration min | details)\\n';\nfor (const [cat, items] of Object.entries(byCat)) {\n  menu += '\\n' + cat + ':\\n' + items.map(s => '- ' + s.service + ' | ' + s.price + ' | ' + s.duration_min + ' min | ' + (s.description || '')).join('\\n') + '\\n';\n}\nmenu += '\\nPACKAGES (name | includes | price PKR | duration min)\\n' + (pkg.length ? pkg.map(p => '- ' + p.package + ' | ' + (p.includes || '') + ' | ' + p.price + ' | ' + p.duration_min + ' min').join('\\n') : '- none');\n// Deterministic reply-language detection: Roman Urdu words vs English words\nconst merged = String($('Collect Messages').first().json.merged || '');\nconst RU = 'hai hain hay hy ha he kya kia ka ki ke k ko se sa sy say mein main mai mujhe muje mujha mjhe mera meri mere aap ap apka apki apko hum hamara humein chahiye chahye chaiye nahi nahin nai nhi kitne kitna kitni kitny kitnay baje bje bjy bajay kal kl aaj aj parson kar karo karna karni karwani karwana krwani krwana kr krna krni krdo kardo kardein krdein krdain krden dein den dain dena sakti sakta skti skta sakte skte mil milegi milay theek thik tik haan han ji jee g acha achha accha bhi aur or yeh ye woh wo kab kahan kidhar kyun kaise kesy kese wala wali waly shaam sham subah dopahar raat bata batao bataein btao btain naam nam lena leni lagwana walay hoga hogi hogya hogaya gaya gya batain shukriya shukria'.split(' ');\nconst EN = 'the is are am was were you your i my me we our it this that what which who when where how can could would should will does did have has had want like need offer offers services service available appointment yes no sure thanks thank for to at on in of and with name time date tomorrow today cost much many'.split(' ');\nconst ru = new Set(RU), en = new Set(EN);\nconst forLang = merged.split('\\n').filter(l => !l.startsWith('[PHOTO ANALYSIS]')).join(' ').replace('[Customer sent a photo]', '');\nconst NEUTRAL = new Set(['yes','yeah','yep','ok','okay','k','no','nope','sure','done','thanks','thank','thx','haan','han','ha','ji','jee','g','nahi','nahin','nai','nhi','theek','thik','tik','acha','achha','accha','oki','hmm','ty']);\nconst words = forLang.toLowerCase().replace(/[^a-z\\s]/g, ' ').split(/\\s+/).filter(Boolean).filter(w => !NEUTRAL.has(w));\nconst r = words.filter(x => ru.has(x)).length, e = words.filter(x => en.has(x)).length;\nconst reply_language = /[\\u0600-\\u06FF\\u0900-\\u097F]/.test(merged) ? 'Roman Urdu' : (r > e ? 'Roman Urdu' : (e > r ? 'English' : \"Same language as the customer's previous messages. If there are no previous messages, use \" + ($('Client Config').first().json.default_language || 'English')));\nreturn [{ json: { menu, merged, reply_language } }];"
+      },
+      "id": "e27388e9-23a3-4f71-b81a-0d5ad6e3732f",
+      "name": "Build Menu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3392,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cf66a72b-7325-4b00-823e-289ae0b69ad9",
+              "leftValue": "={{ $json.type }}",
+              "rightValue": "audio",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "91468f5f-51ae-4d70-9082-f9928d658773",
+      "name": "Is Voice Note?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2384,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v25.0/{{ $json.media_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "af084492-c8ad-4dc2-93f4-019e018a06f2",
+      "name": "Get Audio URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2544,
+        800
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "vyYjyaCvarcaPd7c",
+          "name": "WhatsApp Cloud API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "8ff424dd-0a42-4a3b-bbdf-56fb29b8b828",
+      "name": "Download Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2768,
+        800
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "vyYjyaCvarcaPd7c",
+          "name": "WhatsApp Cloud API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// OpenAI needs a file extension; WhatsApp voice notes are OGG/Opus\nif (!$input.item.binary || !$input.item.binary.data) return { json: { audio_ok: false }, binary: {} };\nconst b = $input.item.binary.data;\nb.fileName = 'voice.ogg';\nb.mimeType = 'audio/ogg';\nb.fileExtension = 'ogg';\nreturn { json: { audio_ok: true }, binary: { data: b } };"
+      },
+      "id": "4536bcff-86dd-43dd-a37c-cd4a7e277e0c",
+      "name": "Name Audio File",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2992,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "model",
+              "value": "gpt-4o-mini-transcribe"
+            },
+            {
+              "name": "prompt",
+              "value": "Salon WhatsApp voice note in Urdu or English. Common words: haircut, gents, ladies, facial, manicure, pedicure, makeup, bridal, mehndi, booking, appointment, price, kal, aaj, parson, baje, shaam, subah."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e0bdf9ce-a21f-440f-9105-1ab918344434",
+      "name": "Transcribe Voice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3216,
+        800
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "PrjNV5yPCLsGr2TM",
+          "name": "OpenAI account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Turn the transcript into a normal text message for the same flow\nconst c = $('Client Config').first().json;\nconst t = String($json.text || '').trim();\nif (!t) return { json: { ...c, voice_failed: true, reply: 'Sorry, aap ka voice note samajh nahi aa saka. Please dobara bhejein ya type kar dein. / Sorry, I could not understand the voice note, please resend or type it.' } };\nreturn { json: { ...c, type: 'text', text: t, text_b64: Buffer.from(t, 'utf8').toString('base64'), from_voice: true } };"
+      },
+      "id": "04bde242-19bd-41d5-98e2-923b5cf15f8e",
+      "name": "Voice To Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3424,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "798da050-3119-4e4a-96e0-6397f4c1b185",
+              "leftValue": "={{ $json.voice_failed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e6cc50af-2048-4a65-a977-7c7fdc7e075c",
+      "name": "Transcribed OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3648,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "7c45f81e-6be7-452c-be9a-7efe176057cd",
+              "leftValue": "={{ $json.type }}",
+              "rightValue": "image",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bbb7dac7-308a-43a2-9e65-073135c1e0c5",
+      "name": "Is Photo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        1024
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v25.0/{{ $json.media_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "02d7f9e1-cda5-48d1-b7a2-e4c083e4202b",
+      "name": "Get Image URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2768,
+        1008
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "vyYjyaCvarcaPd7c",
+          "name": "WhatsApp Cloud API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "b9007877-cf18-40bc-b3a5-9576f552c105",
+      "name": "Download Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2992,
+        1008
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "vyYjyaCvarcaPd7c",
+          "name": "WhatsApp Cloud API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Encode the photo for the vision model\nconst item = $input.first();\nif (!item.binary || !item.binary.data) return [{ json: { image_ok: false } }];\nconst buf = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst mime = item.binary.data.mimeType || 'image/jpeg';\nreturn [{ json: { image_ok: true, data_url: 'data:' + mime + ';base64,' + buf.toString('base64') } }];"
+      },
+      "id": "1d280ff8-4be5-4f30-965d-44c492c96c08",
+      "name": "Image To Base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3216,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"gpt-4o-mini\", temperature: 0.2, response_format: { type: \"json_object\" }, max_tokens: 300, messages: [ { role: \"system\", content: \"You analyse photos that customers send to a beauty salon on WhatsApp. Reply ONLY with JSON: {\\\"photo_type\\\": one of \\\"hair\\\",\\\"skin\\\",\\\"nails\\\",\\\"hairstyle_reference\\\",\\\"makeup_reference\\\",\\\"mehndi_reference\\\",\\\"nails_reference\\\",\\\"medical_concern\\\",\\\"unrelated\\\",\\\"unclear\\\", \\\"observations\\\": short neutral description of what is visible that matters for salon services (e.g. dry or frizzy hair, split ends, faded colour, grown-out roots, damaged ends, chipped or uneven nail polish, overgrown cuticles, dull or uneven-looking skin, unwanted facial hair), \\\"style_name\\\": name of the style if it is a reference photo (e.g. layered cut, balayage, keratin-straight hair, bridal makeup, party makeup, Arabic mehndi, gel nail art) or \\\"\\\", \\\"medical_flag\\\": true if you see a rash, infection, open wound, burn, bleeding, severe inflammation or acne, allergic reaction, or anything that needs a doctor, else false, \\\"confidence\\\": \\\"low\\\"|\\\"medium\\\"|\\\"high\\\"}. Rules: never identify the person, never comment on identity, age, body, weight or attractiveness, never diagnose medical conditions, keep observations under 40 words. If the image is blurry or too dark use \\\"unclear\\\". If it has nothing to do with hair, skin, nails, makeup or mehndi use \\\"unrelated\\\".\" }, { role: \"user\", content: [ { type: \"text\", text: \"Caption from customer: \" + ($('Client Config').first().json.caption || \"(none)\") }, { type: \"image_url\", image_url: { url: $json.data_url, detail: \"auto\" } } ] } ] }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "191ecd82-ae31-4b27-9f31-84edd62dbe32",
+      "name": "Analyze Photo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3424,
+        1008
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "PrjNV5yPCLsGr2TM",
+          "name": "OpenAI account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Turn the vision result into a normal text message for the same agent flow\nconst c = $('Client Config').first().json;\nlet a = {};\ntry { a = JSON.parse($json.choices[0].message.content); } catch (e) { a = { photo_type: 'unclear', observations: '', medical_flag: false, confidence: 'low' }; }\nconst cap = String(c.caption || '').trim();\nconst t = '[Customer sent a photo]' + (cap ? ' ' + cap : '') +\n  '\\n[PHOTO ANALYSIS] type=' + (a.photo_type || 'unclear') + '; observations=' + (a.observations || '') +\n  '; style=' + (a.style_name || '') + '; medical_flag=' + (a.medical_flag === true) + '; confidence=' + (a.confidence || 'low');\nreturn { json: { ...c, type: 'text', text: t, text_b64: Buffer.from(t, 'utf8').toString('base64'), from_photo: true, photo: a } };"
+      },
+      "id": "00b1acdd-1875-4fba-91a5-a1f42a8ef12d",
+      "name": "Photo To Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3648,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-tool-availability",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "6afd1527-2d9b-4744-b3e2-78248832133c",
+      "name": "Avail Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        48,
+        1600
+      ],
+      "webhookId": "df9d510b-7114-42ba-9345-57821ddd5342"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1u-274SYnHa187RRg67dyBgco9KsQ1tJIk7zgT6QrywE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "30edc8a6-62da-4cb1-a434-ad21161a5adc",
+      "name": "Avail Master Config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Security check + find client row from Master Config\nconst body = $('Avail Webhook').first().json.body || {};\nconst headers = $('Avail Webhook').first().json.headers || {};\nif (headers['x-wa-key'] !== 'R6ap2WP09Hw65PQmOrExaDH') throw new Error('Unauthorized tool call');\nconst rows = $input.all().map(i => i.json);\nconst c = rows.find(r => String(r.client_id).trim() === String(body.client_id || '').trim());\nif (!c) throw new Error('Unknown client_id: ' + body.client_id);\nconst tz = c.timezone || 'Asia/Karachi';\nconst day = DateTime.fromISO(String(body.date || ''), { zone: tz });\nconst d = day.isValid ? day : DateTime.now().setZone(tz);\nreturn [{ json: { ...c, args: body, tmin: d.startOf('day').toISO(), tmax: d.endOf('day').toISO() } }];"
+      },
+      "id": "53112c28-0871-44a8-aaff-dab69d99e9d6",
+      "name": "Pick Client",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Pick Client').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Services",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "9415c834-1318-421f-8d05-ddb348af85ab",
+      "name": "Get Services",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Pick Client').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Packages",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "b3e93664-5e2a-46c8-8083-10045521f7af",
+      "name": "Get Packages",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        928,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $('Pick Client').first().json.calendar_id }}",
+          "mode": "id"
+        },
+        "returnAll": true,
+        "timeMin": "={{ $('Pick Client').first().json.tmin }}",
+        "timeMax": "={{ $('Pick Client').first().json.tmax }}",
+        "options": {}
+      },
+      "id": "6d69f3d8-6fcd-413c-81db-a7b874a0806d",
+      "name": "Get Day Events",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1152,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "x6l42Y3SAINHtji3",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== Shared slot engine (used by availability + booking) =====\nconst cfg = $('Pick Client').first().json;\nconst args = cfg.args || {};\nconst tz = cfg.timezone || 'Asia/Karachi';\nconst norm = s => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();\n\nconst catalog = [\n  ...$('Get Services').all().map(i => ({ ...i.json, _kind: 'service' })),\n  ...$('Get Packages').all().map(i => ({ ...i.json, _kind: 'package' })),\n]\n  .filter(r => String(r.active ?? 'TRUE').toUpperCase() !== 'FALSE')\n  .map(r => ({ name: r.service || r.package, kind: r._kind, price: r.price, duration: Number(r.duration_min) || 60 }))\n  .filter(r => r.name);\n\nconst want = norm(args.service);\n// Order-insensitive matching: 'gents haircut' == 'Haircut (Gents)'\nconst toks = s => norm(s).split(' ').filter(w => w && !['the','a','an','for','ka','ki','ke','service','package'].includes(w)).map(w => w.replace(/s$/, ''));\nconst wantT = toks(args.service);\nconst score = c => { const n = toks(c.name); const hit = wantT.filter(w => n.includes(w)).length; return hit === wantT.length && hit > 0 ? 100 - (n.length - hit) : (hit / Math.max(wantT.length, 1)) * 50; };\nconst item = want\n  ? (catalog.find(c => norm(c.name) === want) ||\n     [...catalog].map(c => ({ c, s: score(c) })).filter(x => x.s >= 50).sort((a, b) => b.s - a.s).map(x => x.c)[0] || null)\n  : null;\n\nconst parseTime = v => {\n  if (v === null || v === undefined || v === '') return null;\n  if (typeof v === 'number') return Math.round(v * 24 * 60);\n  const s = String(v).trim().toLowerCase();\n  const m = s.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?/);\n  if (!m) return null;\n  let h = +m[1]; const min = +(m[2] || 0);\n  if (m[3] === 'pm' && h < 12) h += 12;\n  if (m[3] === 'am' && h === 12) h = 0;\n  return h * 60 + min;\n};\n\nconst open = parseTime(cfg.open_time) ?? 660;\nconst close = parseTime(cfg.close_time) ?? 1200;\nconst cap = Number(cfg.staff_capacity) || 1;\nconst buf = Number(cfg.buffer_min) || 0;\nconst day = DateTime.fromISO(String(args.date || ''), { zone: tz }).startOf('day');\nconst days = String(cfg.working_days || '').split(/[,\\s]+/).filter(Boolean).map(d => d.slice(0, 3).toLowerCase());\nconst isOpenDay = day.isValid && (days.length === 0 || days.includes(day.toFormat('ccc').toLowerCase()));\n\nconst events = $('Get Day Events').all().map(i => i.json)\n  .filter(e => e && e.start && e.start.dateTime && e.status !== 'cancelled')\n  .map(e => ({ s: DateTime.fromISO(e.start.dateTime).toMillis(), e: DateTime.fromISO(e.end.dateTime).toMillis() }));\n\nconst dur = item ? item.duration : 60;\nconst now = DateTime.now().setZone(tz);\nconst at = m => day.plus({ minutes: m });\nconst isFree = m => {\n  if (m < open || m + dur > close) return false;\n  const s = at(m), e = at(m + dur + buf);\n  if (s < now.plus({ minutes: 30 })) return false;\n  return events.filter(x => x.s < e.toMillis() && x.e > s.toMillis()).length < cap;\n};\nconst label = m => at(m).toFormat('h:mm a');\nconst freeSlots = [];\nif (isOpenDay) for (let m = open; m + dur <= close; m += 30) if (isFree(m)) freeSlots.push(m);\n\nconst base = {\n  date: day.isValid ? day.toISODate() : null,\n  weekday: day.isValid ? day.toFormat('cccc') : null,\n  open_day: isOpenDay,\n  hours: `${label(open)} - ${label(close)}`,\n  service_found: !!item,\n  service: item ? item.name : args.service,\n  price: item ? item.price : null,\n  duration_min: dur,\n};\n\n// ===== Availability response =====\nif (!day.isValid) return [{ json: { ok: false, reason: 'Invalid date. Send date as YYYY-MM-DD.' } }];\nif (!item) return [{ json: { ...base, ok: false, reason: 'Service not found. Call get_services_pricing / get_packages and use an exact name.', available_names: catalog.map(c => c.name) } }];\nif (!isOpenDay) return [{ json: { ...base, ok: false, reason: 'Salon is closed on ' + base.weekday + '. Working days: ' + cfg.working_days } }];\nconst res = { ...base, ok: true, total_free: freeSlots.length, free_slots: freeSlots.map(label) };\nconst req = args.time ? parseTime(args.time) : null;\nif (req !== null) {\n  res.requested_time = label(req);\n  res.requested_time_free = isFree(req);\n  if (!res.requested_time_free) res.nearest_alternatives = [...freeSlots].sort((a, b) => Math.abs(a - req) - Math.abs(b - req)).slice(0, 3).sort((a, b) => a - b).map(label);\n}\nres.note = !freeSlots.length ? 'Fully booked on this date. Suggest another date.'\n  : (req !== null ? (res.requested_time_free ? 'The requested time IS free. Confirm it with the customer.' : 'Requested time is NOT free. Offer nearest_alternatives.')\n  : 'Ask the customer for a preferred time, or suggest up to 3 times spread across the day.');\nreturn [{ json: res }];"
+      },
+      "id": "16736d82-19a0-4e58-9368-f7fc0808842c",
+      "name": "Compute Slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1376,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "45832f40-e334-421f-a259-2dc8143c5104",
+      "name": "Respond Availability",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1600,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-tool-book",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4157c5bf-2279-410f-8ea6-389dfb756c37",
+      "name": "Book Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        48,
+        1776
+      ],
+      "webhookId": "c322404d-c951-412e-bdec-8f884455d6c3"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1u-274SYnHa187RRg67dyBgco9KsQ1tJIk7zgT6QrywE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "6103166b-acd9-4072-974b-ac9337e672d0",
+      "name": "Book Master Config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        1776
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Security check + find client row from Master Config\nconst body = $('Book Webhook').first().json.body || {};\nconst headers = $('Book Webhook').first().json.headers || {};\nif (headers['x-wa-key'] !== 'R6ap2WP09Hw65PQmOrExaDH') throw new Error('Unauthorized tool call');\nconst rows = $input.all().map(i => i.json);\nconst c = rows.find(r => String(r.client_id).trim() === String(body.client_id || '').trim());\nif (!c) throw new Error('Unknown client_id: ' + body.client_id);\nconst tz = c.timezone || 'Asia/Karachi';\nconst day = DateTime.fromISO(String(body.date || ''), { zone: tz });\nconst d = day.isValid ? day : DateTime.now().setZone(tz);\nreturn [{ json: { ...c, args: body, tmin: d.startOf('day').toISO(), tmax: d.endOf('day').toISO() } }];"
+      },
+      "id": "db1b9aab-0b9e-4f32-946d-9ca00f20f9f0",
+      "name": "Pick Client (Book)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        1776
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Pick Client (Book)').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Services",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "b14bbe59-bf7b-4462-b639-75578f8a9724",
+      "name": "Book Services",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        1776
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Pick Client (Book)').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Packages",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "a672ae9a-5a30-4953-ae2b-0d4b354c6ad5",
+      "name": "Book Packages",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        928,
+        1776
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $('Pick Client (Book)').first().json.calendar_id }}",
+          "mode": "id"
+        },
+        "returnAll": true,
+        "timeMin": "={{ $('Pick Client (Book)').first().json.tmin }}",
+        "timeMax": "={{ $('Pick Client (Book)').first().json.tmax }}",
+        "options": {}
+      },
+      "id": "3245d099-4710-4e6d-b558-38320afea100",
+      "name": "Book Day Events",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1152,
+        1776
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "x6l42Y3SAINHtji3",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== Shared slot engine (used by availability + booking) =====\nconst cfg = $('Pick Client (Book)').first().json;\nconst args = cfg.args || {};\nconst tz = cfg.timezone || 'Asia/Karachi';\nconst norm = s => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();\n\nconst catalog = [\n  ...$('Book Services').all().map(i => ({ ...i.json, _kind: 'service' })),\n  ...$('Book Packages').all().map(i => ({ ...i.json, _kind: 'package' })),\n]\n  .filter(r => String(r.active ?? 'TRUE').toUpperCase() !== 'FALSE')\n  .map(r => ({ name: r.service || r.package, kind: r._kind, price: r.price, duration: Number(r.duration_min) || 60 }))\n  .filter(r => r.name);\n\nconst want = norm(args.service);\n// Order-insensitive matching: 'gents haircut' == 'Haircut (Gents)'\nconst toks = s => norm(s).split(' ').filter(w => w && !['the','a','an','for','ka','ki','ke','service','package'].includes(w)).map(w => w.replace(/s$/, ''));\nconst wantT = toks(args.service);\nconst score = c => { const n = toks(c.name); const hit = wantT.filter(w => n.includes(w)).length; return hit === wantT.length && hit > 0 ? 100 - (n.length - hit) : (hit / Math.max(wantT.length, 1)) * 50; };\nconst item = want\n  ? (catalog.find(c => norm(c.name) === want) ||\n     [...catalog].map(c => ({ c, s: score(c) })).filter(x => x.s >= 50).sort((a, b) => b.s - a.s).map(x => x.c)[0] || null)\n  : null;\n\nconst parseTime = v => {\n  if (v === null || v === undefined || v === '') return null;\n  if (typeof v === 'number') return Math.round(v * 24 * 60);\n  const s = String(v).trim().toLowerCase();\n  const m = s.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?/);\n  if (!m) return null;\n  let h = +m[1]; const min = +(m[2] || 0);\n  if (m[3] === 'pm' && h < 12) h += 12;\n  if (m[3] === 'am' && h === 12) h = 0;\n  return h * 60 + min;\n};\n\nconst open = parseTime(cfg.open_time) ?? 660;\nconst close = parseTime(cfg.close_time) ?? 1200;\nconst cap = Number(cfg.staff_capacity) || 1;\nconst buf = Number(cfg.buffer_min) || 0;\nconst day = DateTime.fromISO(String(args.date || ''), { zone: tz }).startOf('day');\nconst days = String(cfg.working_days || '').split(/[,\\s]+/).filter(Boolean).map(d => d.slice(0, 3).toLowerCase());\nconst isOpenDay = day.isValid && (days.length === 0 || days.includes(day.toFormat('ccc').toLowerCase()));\n\nconst events = $('Book Day Events').all().map(i => i.json)\n  .filter(e => e && e.start && e.start.dateTime && e.status !== 'cancelled')\n  .map(e => ({ s: DateTime.fromISO(e.start.dateTime).toMillis(), e: DateTime.fromISO(e.end.dateTime).toMillis() }));\n\nconst dur = item ? item.duration : 60;\nconst now = DateTime.now().setZone(tz);\nconst at = m => day.plus({ minutes: m });\nconst isFree = m => {\n  if (m < open || m + dur > close) return false;\n  const s = at(m), e = at(m + dur + buf);\n  if (s < now.plus({ minutes: 30 })) return false;\n  return events.filter(x => x.s < e.toMillis() && x.e > s.toMillis()).length < cap;\n};\nconst label = m => at(m).toFormat('h:mm a');\nconst freeSlots = [];\nif (isOpenDay) for (let m = open; m + dur <= close; m += 30) if (isFree(m)) freeSlots.push(m);\n\nconst base = {\n  date: day.isValid ? day.toISODate() : null,\n  weekday: day.isValid ? day.toFormat('cccc') : null,\n  open_day: isOpenDay,\n  hours: `${label(open)} - ${label(close)}`,\n  service_found: !!item,\n  service: item ? item.name : args.service,\n  price: item ? item.price : null,\n  duration_min: dur,\n};\n\n// ===== Booking validation =====\nconst req = parseTime(args.time);\nconst fail = (reason, extra = {}) => [{ json: { ...base, ok: false, reason, ...extra } }];\nif (!day.isValid) return fail('Invalid date. Send date as YYYY-MM-DD.');\nif (!item) return fail('Service not found. Use an exact name from get_services_pricing.', { available_names: catalog.map(c => c.name) });\nif (!isOpenDay) return fail(`Salon is closed on ${base.weekday}.`);\nif (!String(args.name || '').trim()) return fail('Customer name is missing. Ask the customer for their name.');\nif (req === null) return fail('Invalid time. Send time as HH:mm (24h).');\nif (!isFree(req)) {\n  const alternatives = [...freeSlots].sort((a, b) => Math.abs(a - req) - Math.abs(b - req)).slice(0, 3).sort((a, b) => a - b).map(label);\n  return fail('That time is not available.', { requested: label(req), alternatives });\n}\nconst start = at(req), end = at(req + dur);\nconst bookingId = 'WA-' + start.toFormat('yyMMdd') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();\nconst phone = String(args.phone || '');\nconst ownerMsg = [\n  `New booking via WhatsApp (${cfg.business_name})`,\n  '',\n  `Booking ID: ${bookingId}`,\n  `Customer: ${args.name}`,\n  `Phone: +${phone.replace(/^\\+/, '')}`,\n  `Service: ${item.name} (${dur} min)`,\n  `Price: ${item.price}`,\n  `Date: ${start.toFormat('cccc, d LLL yyyy')}`,\n  `Time: ${start.toFormat('h:mm a')} - ${end.toFormat('h:mm a')}`,\n  args.notes ? `Notes: ${args.notes}` : '',\n  '',\n  `Chat: https://wa.me/${phone.replace(/^\\+/, '')}`,\n].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\\n');\nreturn [{ json: {\n  ...base, ok: true, booking_id: bookingId, name: String(args.name).trim(), phone,\n  start: start.toISO(), end: end.toISO(), time_label: `${start.toFormat('h:mm a')} - ${end.toFormat('h:mm a')}`,\n  date_label: start.toFormat('cccc, d LLL yyyy'), notes: args.notes || '',\n  owner_email: cfg.owner_email, owner_msg: ownerMsg, calendar_id: cfg.calendar_id, sheet_id: cfg.sheet_id,\n} }];\n"
+      },
+      "id": "e1f1e7b0-12d3-4fb2-8268-16ce90e35cd9",
+      "name": "Validate Booking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1376,
+        1776
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "f6bf648f-f923-4a59-967a-ed7fe8778e4a",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8f681f26-46af-4667-9a76-785256507dec",
+      "name": "Slot OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        1776
+      ]
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $json.calendar_id }}",
+          "mode": "id"
+        },
+        "start": "={{ $json.start }}",
+        "end": "={{ $json.end }}",
+        "additionalFields": {
+          "description": "=Booking ID: {{ $json.booking_id }}\nPhone: +{{ $json.phone }}\nService: {{ $json.service }} ({{ $json.duration_min }} min)\nPrice: {{ $json.price }}\nBooked by: WhatsApp AI assistant\nNotes: {{ $json.notes }}",
+          "summary": "={{ $json.service }} - {{ $json.name }}"
+        }
+      },
+      "id": "570e18f9-7b86-41e8-ac5b-acc8bb649d4f",
+      "name": "Create Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1808,
+        1680
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "x6l42Y3SAINHtji3",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const v = $('Validate Booking').first().json;\nreturn { json: { booking_id: v.booking_id, created_at: DateTime.now().setZone('Asia/Karachi').toFormat('yyyy-MM-dd HH:mm'), customer_name: v.name, phone: v.phone, service: v.service, date: v.date, start: DateTime.fromISO(v.start).toFormat('HH:mm'), end: DateTime.fromISO(v.end).toFormat('HH:mm'), calendar_event_id: $json.id, status: 'confirmed', source: 'WhatsApp' } };"
+      },
+      "id": "eaed249e-f261-4a9b-ad39-2a07f826dbd2",
+      "name": "Build Booking Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        1680
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Validate Booking').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Bookings",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "edf42be3-0cda-49f2-9f72-8fd3e6d9dc89",
+      "name": "Save To Bookings",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2256,
+        1680
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Validate Booking').first().json.owner_email }}",
+        "subject": "=New WhatsApp booking: {{ $('Validate Booking').first().json.service }} - {{ $('Validate Booking').first().json.name }} ({{ $('Validate Booking').first().json.date_label }}, {{ $('Validate Booking').first().json.time_label }})",
+        "emailType": "text",
+        "message": "={{ $('Validate Booking').first().json.owner_msg }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "31c9a3b1-af24-49ee-8bdc-0946fb5ac9a2",
+      "name": "Email Owner",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2480,
+        1680
+      ],
+      "webhookId": "1e9d6f62-c41a-4ab0-b547-b3897f9b1838",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "0tMB9pp8maOyBnTp",
+          "name": "Gmail account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ booked: true, booking_id: $('Validate Booking').first().json.booking_id, service: $('Validate Booking').first().json.service, price: $('Validate Booking').first().json.price, date: $('Validate Booking').first().json.date_label, time: $('Validate Booking').first().json.time_label, name: $('Validate Booking').first().json.name }) }}",
+        "options": {}
+      },
+      "id": "e684b212-6bc7-4f5e-90be-b16dfef36746",
+      "name": "Respond Booked",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2688,
+        1680
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify(Object.assign({ booked: false }, $json)) }}",
+        "options": {}
+      },
+      "id": "f96d44d8-7b5f-4386-a0b3-a8271d057d48",
+      "name": "Respond Not Booked",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1808,
+        1904
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Booking Tools (called by AI Agent)\nTop: /webhook/wa-tool-availability → free slots\nBottom: /webhook/wa-tool-book → re-check, Calendar event, Bookings sheet, Gmail owner",
+        "height": 716,
+        "width": 3400,
+        "color": 5
+      },
+      "id": "e1e89000-e421-42b1-b72f-7d8a553a0622",
+      "name": "Sticky Booking Tools",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1424
+      ]
+    },
+    {
+      "parameters": {
+        "path": "privacy",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "0fe918d4-7f53-48d2-82b1-809451fd8088",
+      "name": "Privacy Page",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        2336
+      ],
+      "webhookId": "89cdbf85-d031-44cf-b6d0-f00c52fdc01c"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Privacy Policy – Sameer Faisal Automations</title>\n<style>\n  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;line-height:1.6;color:#1d1d1f;background:#fff}\n  h1{font-size:28px;margin-bottom:4px} h2{font-size:19px;margin-top:28px} .muted{color:#666;font-size:14px}\n  a{color:#0b5cad}\n</style>\n</head>\n<body>\n<h1>Privacy Policy</h1>\n<p class=\"muted\">Last updated: 13 October 2026</p>\n\n<p>This policy explains how Sameer Faisal (\"we\") handles data in the automation services we build and operate. These include the WhatsApp AI Assistant for salons and businesses, and the integrations it uses with Google Sheets, Google Calendar and Gmail.</p>\n\n<h2>Data we process</h2>\n<ul>\n  <li><b>WhatsApp messages:</b> the customer's phone number, profile name, and the text, voice notes and photos they send to a business that uses our assistant.</li>\n  <li><b>Booking details:</b> the name, service, date and time a customer gives when booking an appointment.</li>\n  <li><b>Google account data:</b> access to the business's own Google Sheets, Calendar and Gmail. We use it only to read the service menu, check availability, create bookings and send booking notifications to the business owner.</li>\n</ul>\n\n<h2>How we use it</h2>\n<ul>\n  <li>To reply to customer questions and make appointment bookings for the business.</li>\n  <li>To notify the business owner about new bookings or customers who need a human.</li>\n  <li>Voice notes are transcribed and photos are analysed by AI (OpenAI) only to understand the request. We never use photos to identify people.</li>\n</ul>\n\n<h2>Sharing</h2>\n<p>We do not sell or rent personal data. We share data only with the service providers needed to run the assistant: Meta (WhatsApp Cloud API), Google (Sheets, Calendar, Gmail) and OpenAI (language, transcription and image understanding). Each provider processes data under its own terms.</p>\n\n<h2>Google user data</h2>\n<p>Our use of information received from Google APIs follows the <a href=\"https://developers.google.com/terms/api-services-user-data-policy\">Google API Services User Data Policy</a>, including the Limited Use requirements. Google data is used only to provide the features described above. It is not used for advertising and is not transferred to third parties except as needed to provide those features.</p>\n\n<h2>Retention</h2>\n<p>Recent chat history is kept to keep the conversation in context and is removed regularly. Booking records stay in the business's own Google Sheet and Calendar, which the business controls.</p>\n\n<h2>Your choices</h2>\n<p>You can ask for your data to be deleted at any time by contacting the business you messaged, or by emailing us directly.</p>\n\n<h2>Contact</h2>\n<p>Sameer Faisal, Lahore, Pakistan · <a href=\"mailto:sameerf737@gmail.com\">sameerf737@gmail.com</a></p>\n</body>\n</html>\n",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "f9431261-47b0-4343-920f-c53e86e77d0a",
+      "name": "Serve Privacy HTML",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1888,
+        2336
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT EXISTS (SELECT 1 FROM handoff_flags WHERE client_id = $1 AND wa_id = $2 AND active AND expires_at > now()) AS paused;",
+        "options": {
+          "queryReplacement": "={{ $json.client_id }},{{ $json.wa_id }}"
+        }
+      },
+      "id": "09897762-040b-4825-8426-843d14106ca9",
+      "name": "Handoff Check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1264,
+        448
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "5MOqathSxYYjRRsw",
+          "name": "WA App DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// owner command (#...) -> 0 | paused chat -> 1 | normal AI -> 2\nconst c = $('Client Config').first().json;\nconst p = $input.first().json.paused;\nconst paused = p === true || p === 't' || p === 'true';\nconst digits = s => String(s || '').replace(/\\D/g, '');\nconst owner = digits(c.owner_whatsapp);\nconst txt = String(c.text || '').trim();\nconst isOwnerCmd = !!owner && digits(c.wa_id) === owner && c.type === 'text' && txt.startsWith('#');\nreturn [{ json: Object.assign({}, c, { paused, route_index: isOwnerCmd ? 0 : ((paused && digits(c.wa_id) !== owner) ? 1 : 2) }) }];"
+      },
+      "id": "6baa1bb5-0574-4e8c-b550-c82d2e671ea0",
+      "name": "Route Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1488,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ $json.route_index }}"
+      },
+      "id": "1d8a8b56-acbf-4e60-9b51-b414b8b4022b",
+      "name": "Route Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1712,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.owner_email }}",
+        "subject": "=Paused chat: new message from +{{ $json.wa_id }}",
+        "emailType": "text",
+        "message": "={{ ['A customer whose chat is paused (your team is handling it) sent a new message.', '', 'Customer: ' + ($json.profile_name || '') + ' (+' + $json.wa_id + ')', 'Message: ' + ($json.type === 'text' ? $json.text : ('[' + $json.type + '] ' + ($json.caption || ''))), '', 'Reply through the bot (send from your WhatsApp to the business number):', '#reply ' + $json.wa_id + ' your message', 'Resume the AI: #on ' + $json.wa_id, '', 'Chat: https://wa.me/' + $json.wa_id].join('\\n') }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "4a04ce02-5f75-4c70-bbc0-92f4a595ce03",
+      "name": "Forward To Owner",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1952,
+        240
+      ],
+      "webhookId": "8114df5a-af86-4b59-bbbf-f5d6c63c40e3",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "0tMB9pp8maOyBnTp",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $input.first().json;\nconst raw = String(c.text || '').trim();\nconst m = raw.match(/^#\\s*(\\w+)\\s*([\\s\\S]*)$/);\nconst cmd = m ? m[1].toLowerCase() : 'help';\nconst rest = m ? m[2].trim() : '';\nconst normNum = s => { let d = String(s || '').replace(/\\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.startsWith('0')) d = '92' + d.slice(1); return d; };\nconst first = rest.split(/\\s+/)[0] || '';\nconst target = first.replace(/\\D/g, '').length >= 7 ? normNum(first) : '';\nconst after = target ? rest.slice(first.length).trim() : rest;\nlet hours = 24;\nif (cmd === 'off' && /^\\d{1,3}$/.test(after)) hours = Math.min(168, Math.max(1, Number(after)));\nconst PAUSE = \"INSERT INTO handoff_flags (client_id, wa_id, active, reason, created_at, expires_at) VALUES ($1, $2, true, 'Paused by owner', now(), now() + make_interval(hours => $3::int)) ON CONFLICT (client_id, wa_id) DO UPDATE SET active = true, reason = 'Paused by owner', created_at = now(), expires_at = now() + make_interval(hours => $3::int) RETURNING wa_id;\";\nlet sql;\nif ((cmd === 'off' || cmd === 'reply' || cmd === 'r') && target) sql = PAUSE;\nelse if (cmd === 'on' && target) sql = \"UPDATE handoff_flags SET active = false WHERE client_id = $1 AND wa_id = $2 AND $3::int > 0 RETURNING wa_id;\";\nelse if (cmd === 'on') sql = \"UPDATE handoff_flags SET active = false WHERE client_id = $1 AND active AND expires_at > now() AND $2::text IS NOT NULL AND $3::int > 0 AND (SELECT count(*) FROM handoff_flags WHERE client_id = $1 AND active AND expires_at > now()) = 1 RETURNING wa_id;\";\nelse if (cmd === 'status') sql = \"SELECT wa_id, coalesce(reason, '') AS reason, to_char(expires_at AT TIME ZONE 'Asia/Karachi', 'DD Mon, HH12:MI AM') AS until FROM handoff_flags WHERE client_id = $1 AND active AND expires_at > now() AND $2::text IS NOT NULL AND $3::int > 0 ORDER BY created_at DESC;\";\nelse sql = \"SELECT $1::text AS client_id, $2::text AS t, $3::int AS h;\";\nreturn [{ json: { client_id: c.client_id, phone_number_id: c.phone_number_id, owner_wa: c.wa_id, cmd, target, msg: after, hours, sql } }];"
+      },
+      "id": "0d39d8c0-95d0-4889-abd4-af40f9d9eac9",
+      "name": "Parse Owner Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1952,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $json.sql }}",
+        "options": {
+          "queryReplacement": "={{ $json.client_id }},{{ $json.target || '0' }},{{ $json.hours }}"
+        }
+      },
+      "id": "8e7233cf-a062-48bb-bc35-041b8bb7e313",
+      "name": "Run Owner Command",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2160,
+        48
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "5MOqathSxYYjRRsw",
+          "name": "WA App DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Parse Owner Command').first().json;\nconst rows = $input.all().map(i => i.json).filter(r => r && Object.keys(r).length);\nconst out = [];\nconst toOwner = t => out.push({ json: { phone_number_id: p.phone_number_id, wa_id: p.owner_wa, reply: t } });\nconst HELP = ['Owner commands:', '#status - list paused chats', '#off 923001234567 - pause the AI for a customer (24h, or add hours: #off 923001234567 48)', '#on 923001234567 - resume the AI', '#reply 923001234567 your message - send a message to the customer (also pauses the AI for them)'].join('\\n');\nswitch (p.cmd) {\n  case 'off':\n    toOwner(p.target ? 'AI paused for +' + p.target + ' for ' + p.hours + 'h. Their messages will be emailed to you. Send #on ' + p.target + ' to resume.' : 'Usage: #off 923001234567');\n    break;\n  case 'on':\n    toOwner(!p.target ? (rows.some(r => r.wa_id) ? 'AI resumed for +' + rows.find(r => r.wa_id).wa_id + '.' : 'Send #on with the number, e.g. #on 923001234567 (send #status to see paused chats).') : (rows.some(r => r.wa_id) ? 'AI resumed for +' + p.target + '.' : '+' + p.target + ' was not paused.'));\n    break;\n  case 'status': {\n    const list = rows.filter(r => r.wa_id && r.until);\n    toOwner(list.length ? 'Paused chats:\\n' + list.map(r => '+' + r.wa_id + ' - ' + r.reason + ' (until ' + r.until + ')').join('\\n') : 'No paused chats. The AI is handling everyone.');\n    break;\n  }\n  case 'reply': case 'r':\n    if (!p.target || !p.msg) { toOwner('Usage: #reply 923001234567 your message'); break; }\n    out.push({ json: { phone_number_id: p.phone_number_id, wa_id: p.target, reply: p.msg } });\n    toOwner('Sent to +' + p.target + '. AI is paused for them (send #on ' + p.target + ' to resume).');\n    break;\n  default:\n    toOwner(HELP);\n}\nreturn out;"
+      },
+      "id": "c32c1ec3-da10-4fd7-bf29-94e2f774daf3",
+      "name": "Owner Replies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2384,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Tool: transfer_to_human (/webhook/wa-tool-handoff)\nPauses AI for the customer 24h + emails owner",
+        "height": 380,
+        "width": 1500,
+        "color": 3
+      },
+      "id": "089b219a-e962-4b35-8f95-8bce7907e538",
+      "name": "Sticky Handoff Tool",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        2160
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-tool-handoff",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "67a543e0-4160-4d23-9a4a-53dca40059bb",
+      "name": "Handoff Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        48,
+        2336
+      ],
+      "webhookId": "cd5adcf0-955e-456a-a88d-b65fd353a74e"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1u-274SYnHa187RRg67dyBgco9KsQ1tJIk7zgT6QrywE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "a4399f95-bdab-42a0-8cb1-2a5328d513e7",
+      "name": "Handoff Master Config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        2336
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Handoff Webhook').first().json;\nconst body = w.body || {};\nif ((w.headers || {})['x-wa-key'] !== 'R6ap2WP09Hw65PQmOrExaDH') throw new Error('Unauthorized tool call');\nconst c = $input.all().map(i => i.json).find(r => String(r.client_id).trim() === String(body.client_id || '').trim());\nif (!c) throw new Error('Unknown client_id: ' + body.client_id);\nconst phone = String(body.phone || '').replace(/\\D/g, '');\nconst name = String(body.customer_name || '').trim();\nconst reason = String(body.reason || 'Customer asked for a team member').slice(0, 200);\nconst summary = String(body.summary || '').slice(0, 1500);\nconst b64 = s => Buffer.from(s, 'utf8').toString('base64');\nconst owner = String(c.owner_whatsapp || '').replace(/\\D/g, '');\nconst msg = [\n  'A customer on WhatsApp needs a team member (' + c.business_name + ').', '',\n  'Customer: ' + (name ? name + ' ' : '') + '(+' + phone + ')',\n  'Reason: ' + reason,\n  'Summary: ' + summary, '',\n  'The AI is paused for this customer for 24 hours. Their new messages will be emailed to you.', '',\n  'Reply through the bot (from your WhatsApp +' + owner + ' to the business number):',\n  '#reply ' + phone + ' your message',\n  'Resume the AI: #on ' + phone, '',\n  'Or chat directly: https://wa.me/' + phone,\n].join('\\n');\nreturn [{ json: { client_id: c.client_id, owner_email: c.owner_email, phone, reason, reason_b64: b64(reason), summary_b64: b64(summary || '-'), owner_msg: msg } }];"
+      },
+      "id": "fe324557-55d8-444f-9819-f1c739092a5a",
+      "name": "Pick Client (Handoff)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        2336
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO handoff_flags (client_id, wa_id, active, reason, summary, created_at, expires_at) VALUES ($1, $2, true, convert_from(decode($3, 'base64'), 'UTF8'), convert_from(decode($4, 'base64'), 'UTF8'), now(), now() + interval '24 hours') ON CONFLICT (client_id, wa_id) DO UPDATE SET active = true, reason = EXCLUDED.reason, summary = EXCLUDED.summary, created_at = now(), expires_at = now() + interval '24 hours' RETURNING wa_id;",
+        "options": {
+          "queryReplacement": "={{ $json.client_id }},{{ $json.phone }},{{ $json.reason_b64 }},{{ $json.summary_b64 }}"
+        }
+      },
+      "id": "71ac24f8-0a58-4e44-ad5d-0d95c33b340b",
+      "name": "Set Handoff Flag",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        2336
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "5MOqathSxYYjRRsw",
+          "name": "WA App DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Pick Client (Handoff)').first().json.owner_email }}",
+        "subject": "=Customer needs a team member: +{{ $('Pick Client (Handoff)').first().json.phone }} ({{ $('Pick Client (Handoff)').first().json.reason }})",
+        "emailType": "text",
+        "message": "={{ $('Pick Client (Handoff)').first().json.owner_msg }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "1ee5c8f9-e93f-402d-a675-3d964b0edd04",
+      "name": "Email Owner (Handoff)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        928,
+        2336
+      ],
+      "webhookId": "502c3ac9-abb9-4484-9d66-e3aa88bc6b9f",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "0tMB9pp8maOyBnTp",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ handed_off: true, instruction: 'Tell the customer a team member will reply here shortly. Do not try to solve this yourself.' }) }}",
+        "options": {}
+      },
+      "id": "2f964257-6e49-4c59-b518-e35b7f78f66e",
+      "name": "Respond Handoff",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1152,
+        2336
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Tools: find_bookings / cancel_booking / reschedule_booking (/webhook/wa-tool-manage)\nOnly bookings made from the same WhatsApp number can be changed",
+        "height": 820,
+        "width": 3600,
+        "color": 5
+      },
+      "id": "423cdf92-db93-4bc4-8634-d56dee78917a",
+      "name": "Sticky Manage Tool",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        2576
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-tool-manage",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "8511ec94-3c01-448f-9890-91bcb36f0fed",
+      "name": "Manage Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        48,
+        2768
+      ],
+      "webhookId": "9a685806-348d-4839-8636-bf71477ee868"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1u-274SYnHa187RRg67dyBgco9KsQ1tJIk7zgT6QrywE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Config",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "ba3ecead-4743-4cbe-a239-6a3e93fdf9dc",
+      "name": "Manage Master Config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        272,
+        2768
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Manage Webhook').first().json;\nconst body = w.body || {};\nif ((w.headers || {})['x-wa-key'] !== 'R6ap2WP09Hw65PQmOrExaDH') throw new Error('Unauthorized tool call');\nconst c = $input.all().map(i => i.json).find(r => String(r.client_id).trim() === String(body.client_id || '').trim());\nif (!c) throw new Error('Unknown client_id: ' + body.client_id);\nreturn [{ json: Object.assign({}, c, { args: body }) }];"
+      },
+      "id": "f6b9f302-ed94-4930-8ece-e744e4510e43",
+      "name": "Pick Client (Manage)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        2768
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Pick Client (Manage)').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Bookings",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "570d5547-a42d-4f9f-9b2e-bc1b59f189b1",
+      "name": "Read Bookings",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        2768
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Pick Client (Manage)').first().json;\nconst a = cfg.args || {};\nconst tz = cfg.timezone || 'Asia/Karachi';\nconst digits = s => String(s || '').replace(/\\D/g, '');\nconst phone = digits(a.phone);\nconst now = DateTime.now().setZone(tz);\nconst rows = $input.all().map(i => i.json).filter(r => r && r.booking_id);\nconst mine = rows\n  .filter(r => digits(r.phone) === phone && String(r.status || '').toLowerCase() !== 'cancelled')\n  .map(r => {\n    const hm = s => String(s || '').trim().padStart(5, '0');\n    const dt = DateTime.fromISO(String(r.date).trim() + 'T' + hm(r.start), { zone: tz });\n    return { booking_id: String(r.booking_id), name: r.customer_name, service: r.service, start_hm: hm(r.start), end_hm: hm(r.end), calendar_event_id: r.calendar_event_id, phone, dt };\n  })\n  .filter(r => r.dt.isValid && r.dt > now)\n  .sort((x, y) => x.dt.toMillis() - y.dt.toMillis());\nconst view = r => ({ booking_id: r.booking_id, name: r.name, service: r.service, date: r.dt.toFormat('cccc, d LLL yyyy'), time: r.dt.toFormat('h:mm a') });\nconst respond = obj => [{ json: { route: 0, response: obj } }];\nconst action = String(a.action || 'list').toLowerCase();\nif (action === 'list') return respond({ count: mine.length, bookings: mine.map(view) });\nconst id = String(a.booking_id || '').trim().toUpperCase();\nconst b = mine.find(r => r.booking_id.toUpperCase() === id);\nif (!b) return respond({ ok: false, reason: 'Booking not found for this customer (or it is past/already cancelled). Use one of these booking IDs.', bookings: mine.map(view) });\nconst booking = Object.assign(view(b), { phone, calendar_event_id: b.calendar_event_id, start_hm: b.start_hm, end_hm: b.end_hm });\nconst common = { booking, business_name: cfg.business_name, owner_email: cfg.owner_email, calendar_id: cfg.calendar_id, sheet_id: cfg.sheet_id };\nif (action === 'cancel') {\n  const msg = ['Booking cancelled via WhatsApp (' + cfg.business_name + ')', '', 'Booking ID: ' + b.booking_id, 'Customer: ' + b.name, 'Phone: +' + phone, 'Service: ' + b.service, 'Was: ' + booking.date + ', ' + booking.time, '', 'The calendar event was removed and the Bookings row is marked cancelled.', 'Chat: https://wa.me/' + phone].join('\\n');\n  return [{ json: Object.assign({ route: 1, owner_msg: msg }, common) }];\n}\nif (action === 'reschedule') {\n  const nd = DateTime.fromISO(String(a.new_date || ''), { zone: tz });\n  if (!nd.isValid) return respond({ rescheduled: false, reason: 'Invalid new_date. Use YYYY-MM-DD.' });\n  return [{ json: Object.assign({ route: 2, tmin: nd.startOf('day').toISO(), tmax: nd.endOf('day').toISO() }, common) }];\n}\nreturn respond({ ok: false, reason: 'Unknown action' });"
+      },
+      "id": "abb124c8-7811-440f-9d84-85877e1144b2",
+      "name": "Find Booking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        2768
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ $json.route }}"
+      },
+      "id": "96bf8d45-4312-45f3-882a-a78d62faa834",
+      "name": "Manage Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1152,
+        2768
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {}
+      },
+      "id": "c6d19276-a4e5-4e71-97b4-256996169d62",
+      "name": "Respond Manage",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1376,
+        2640
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $json.calendar_id }}",
+          "mode": "id"
+        },
+        "eventId": "={{ $json.booking.calendar_event_id }}",
+        "options": {}
+      },
+      "id": "05144ba3-0671-40df-9dd4-b7b8d50b1f84",
+      "name": "Delete Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1376,
+        2816
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "x6l42Y3SAINHtji3",
+          "name": "Google Calendar account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const f = $('Find Booking').first().json;\nreturn [{ json: { booking_id: f.booking.booking_id, status: 'cancelled' } }];"
+      },
+      "id": "bf83db01-edfa-44a6-bee7-fe444229136a",
+      "name": "Cancel Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        2816
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Find Booking').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Bookings",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "booking_id"
+          ],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "a1042e3d-faf9-4f95-986e-384de94ce302",
+      "name": "Mark Cancelled",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1808,
+        2816
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Find Booking').first().json.owner_email }}",
+        "subject": "=Booking cancelled: {{ $('Find Booking').first().json.booking.service }} - {{ $('Find Booking').first().json.booking.name }} ({{ $('Find Booking').first().json.booking.date }}, {{ $('Find Booking').first().json.booking.time }})",
+        "emailType": "text",
+        "message": "={{ $('Find Booking').first().json.owner_msg }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "570bc8bb-5a6e-4572-a6d8-1be67eb8df51",
+      "name": "Email Owner (Cancel)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2032,
+        2816
+      ],
+      "webhookId": "4b7f5c8f-055e-4aba-bee7-9e5b2554865e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "0tMB9pp8maOyBnTp",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ cancelled: true, booking_id: $('Find Booking').first().json.booking.booking_id, service: $('Find Booking').first().json.booking.service, date: $('Find Booking').first().json.booking.date, time: $('Find Booking').first().json.booking.time }) }}",
+        "options": {}
+      },
+      "id": "7c41c684-2c55-4d81-b157-21cd84437c48",
+      "name": "Respond Cancelled",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2256,
+        2816
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Find Booking').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Services",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "f11fd15a-12f7-4537-8335-f0396e9f78b9",
+      "name": "Manage Services",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1376,
+        3040
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Find Booking').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Packages",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "9dbe9a22-7cb2-4a39-b234-b155d13017ed",
+      "name": "Manage Packages",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1600,
+        3040
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $('Find Booking').first().json.calendar_id }}",
+          "mode": "id"
+        },
+        "returnAll": true,
+        "timeMin": "={{ $('Find Booking').first().json.tmin }}",
+        "timeMax": "={{ $('Find Booking').first().json.tmax }}",
+        "options": {}
+      },
+      "id": "28ccc49e-2ea0-429b-9aec-69ca65e1b842",
+      "name": "Manage Day Events",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1808,
+        3040
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "x6l42Y3SAINHtji3",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const f = $('Find Booking').first().json;\nconst cfg = $('Pick Client (Manage)').first().json;\nconst a = cfg.args || {};\nconst b = f.booking;\nconst tz = cfg.timezone || 'Asia/Karachi';\nconst norm = s => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();\nconst catalog = $('Manage Services').all().map(i => i.json).concat($('Manage Packages').all().map(i => i.json))\n  .filter(r => r && String(r.active === undefined ? 'TRUE' : r.active).toUpperCase() !== 'FALSE')\n  .map(r => ({ name: r.service || r.package, price: r.price, duration: Number(r.duration_min) || 60 }))\n  .filter(r => r.name);\nconst item = catalog.find(c => norm(c.name) === norm(b.service)) || null;\nconst parseTime = v => {\n  if (v === null || v === undefined || v === '') return null;\n  if (typeof v === 'number') return Math.round(v * 24 * 60);\n  const m = String(v).trim().toLowerCase().match(/(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?/);\n  if (!m) return null;\n  let h = +m[1]; const min = +(m[2] || 0);\n  if (m[3] === 'pm' && h < 12) h += 12;\n  if (m[3] === 'am' && h === 12) h = 0;\n  return h * 60 + min;\n};\nconst open = parseTime(cfg.open_time) ?? 660;\nconst close = parseTime(cfg.close_time) ?? 1200;\nconst cap = Number(cfg.staff_capacity) || 1;\nconst buf = Number(cfg.buffer_min) || 0;\nconst day = DateTime.fromISO(String(a.new_date || ''), { zone: tz }).startOf('day');\nconst days = String(cfg.working_days || '').split(/[,\\s]+/).filter(Boolean).map(d => d.slice(0, 3).toLowerCase());\nconst isOpenDay = day.isValid && (days.length === 0 || days.includes(day.toFormat('ccc').toLowerCase()));\nconst events = $('Manage Day Events').all().map(i => i.json)\n  .filter(e => e && e.start && e.start.dateTime && e.status !== 'cancelled' && e.id !== b.calendar_event_id)\n  .map(e => ({ s: DateTime.fromISO(e.start.dateTime).toMillis(), e: DateTime.fromISO(e.end.dateTime).toMillis() }));\nconst oldDur = (parseTime(b.end_hm) ?? 0) - (parseTime(b.start_hm) ?? 0);\nconst dur = item ? item.duration : (oldDur > 0 ? oldDur : 60);\nconst now = DateTime.now().setZone(tz);\nconst at = m => day.plus({ minutes: m });\nconst isFree = m => {\n  if (m < open || m + dur > close) return false;\n  const s = at(m), e = at(m + dur + buf);\n  if (s < now.plus({ minutes: 30 })) return false;\n  return events.filter(x => x.s < e.toMillis() && x.e > s.toMillis()).length < cap;\n};\nconst label = m => at(m).toFormat('h:mm a');\nconst free = [];\nif (isOpenDay) for (let m = open; m + dur <= close; m += 30) if (isFree(m)) free.push(m);\nconst fail = (reason, extra) => [{ json: Object.assign({ ok: false, reason, booking_id: b.booking_id }, extra || {}) }];\nif (!day.isValid) return fail('Invalid new_date. Use YYYY-MM-DD.');\nif (!isOpenDay) return fail('Salon is closed on ' + day.toFormat('cccc') + '.');\nconst req = parseTime(a.new_time);\nif (req === null) return fail('Invalid new_time. Use HH:mm (24h).');\nif (!isFree(req)) {\n  const alternatives = [...free].sort((x, y) => Math.abs(x - req) - Math.abs(y - req)).slice(0, 3).sort((x, y) => x - y).map(label);\n  return fail('That time is not available.', { requested: label(req), alternatives });\n}\nconst start = at(req), end = at(req + dur);\nconst dateLabel = start.toFormat('cccc, d LLL yyyy'), timeLabel = start.toFormat('h:mm a') + ' - ' + end.toFormat('h:mm a');\nconst msg = ['Booking rescheduled via WhatsApp (' + f.business_name + ')', '', 'Booking ID: ' + b.booking_id, 'Customer: ' + b.name, 'Phone: +' + b.phone, 'Service: ' + b.service, 'Old: ' + b.date + ', ' + b.time, 'New: ' + dateLabel + ', ' + timeLabel, '', 'Calendar event and Bookings row updated.', 'Chat: https://wa.me/' + b.phone].join('\\n');\nreturn [{ json: { ok: true, booking_id: b.booking_id, service: b.service, name: b.name, calendar_id: f.calendar_id, calendar_event_id: b.calendar_event_id, start: start.toISO(), end: end.toISO(), new_date: start.toISODate(), new_start: start.toFormat('HH:mm'), new_end: end.toFormat('HH:mm'), date_label: dateLabel, time_label: timeLabel, owner_email: f.owner_email, owner_msg: msg } }];"
+      },
+      "id": "228c7653-b4a1-478e-b070-7ca655529308",
+      "name": "Validate Reschedule",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        3040
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "f6bf648f-f923-4a59-967a-ed7fe8778e4a",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "03c18d0d-921f-4647-8be9-c88f90947a5d",
+      "name": "Resched OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2256,
+        3040
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $json.calendar_id }}",
+          "mode": "id"
+        },
+        "eventId": "={{ $json.calendar_event_id }}",
+        "updateFields": {
+          "end": "={{ $json.end }}",
+          "start": "={{ $json.start }}"
+        }
+      },
+      "id": "eb724686-049f-49c2-be1e-8d9b3f1e0148",
+      "name": "Update Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        2480,
+        2976
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "x6l42Y3SAINHtji3",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const v = $('Validate Reschedule').first().json;\nreturn [{ json: { booking_id: v.booking_id, date: v.new_date, start: v.new_start, end: v.new_end, status: 'rescheduled' } }];"
+      },
+      "id": "952cb826-9acd-4202-b08e-f7bf0cfc20b0",
+      "name": "Resched Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        2976
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Find Booking').first().json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Bookings",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "booking_id"
+          ],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "40e9282b-65f9-4422-a7fa-3eb38b9e6577",
+      "name": "Update Booking Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2912,
+        2976
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "m5CE0p2OCpQRSns3",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Validate Reschedule').first().json.owner_email }}",
+        "subject": "=Booking rescheduled: {{ $('Validate Reschedule').first().json.service }} - {{ $('Validate Reschedule').first().json.name }} -> {{ $('Validate Reschedule').first().json.date_label }}, {{ $('Validate Reschedule').first().json.time_label }}",
+        "emailType": "text",
+        "message": "={{ $('Validate Reschedule').first().json.owner_msg }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "c2b71a1e-39af-40d9-a706-e72336343509",
+      "name": "Email Owner (Reschedule)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        3136,
+        2976
+      ],
+      "webhookId": "f0d246c1-006c-470c-aa74-3b31c62a7c1d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "0tMB9pp8maOyBnTp",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ rescheduled: true, booking_id: $('Validate Reschedule').first().json.booking_id, service: $('Validate Reschedule').first().json.service, date: $('Validate Reschedule').first().json.date_label, time: $('Validate Reschedule').first().json.time_label }) }}",
+        "options": {}
+      },
+      "id": "e1042c3e-fb2b-4b22-afde-487f2973f26f",
+      "name": "Respond Rescheduled",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3360,
+        2976
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify(Object.assign({ rescheduled: false }, $json)) }}",
+        "options": {}
+      },
+      "id": "cfa4c93e-e4f2-4988-b33b-744c3ca6b9ae",
+      "name": "Respond Not Rescheduled",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2480,
+        3200
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Hands the chat to a human team member: pauses the AI for this customer for 24h and alerts the owner. Use it when the customer asks for a person/owner/manager, complains, needs a custom/bridal/group quote, has a medical concern, or you cannot help.",
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/wa-tool-handoff",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-wa-key",
+              "value": "R6ap2WP09Hw65PQmOrExaDH"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $('Client Config').first().json.client_id }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $('Client Config').first().json.wa_id }}"
+            },
+            {
+              "name": "customer_name",
+              "value": "={{ $fromAI('customer_name', 'Customer name if they told you, otherwise empty', 'string') }}"
+            },
+            {
+              "name": "reason",
+              "value": "={{ $fromAI('reason', 'Short reason, e.g. Wants to talk to owner / Complaint / Bridal quote', 'string') }}"
+            },
+            {
+              "name": "summary",
+              "value": "={{ $fromAI('summary', '1-3 line summary of what the customer wants', 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ed725cfb-35dc-4660-8ddb-aec3b9ab9afe",
+      "name": "transfer_to_human",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        4064,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Lists this customer's upcoming bookings (only bookings made from this WhatsApp number), with booking_id, service, date and time. Call it when the customer wants to cancel, reschedule or check a booking.",
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/wa-tool-manage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-wa-key",
+              "value": "R6ap2WP09Hw65PQmOrExaDH"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $('Client Config').first().json.client_id }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $('Client Config').first().json.wa_id }}"
+            },
+            {
+              "name": "action",
+              "value": "list"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "97caac98-79df-4c07-a4de-e59e43f86c2b",
+      "name": "find_bookings",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        4256,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Cancels one of the customer's bookings. Only call AFTER the customer clearly confirmed which booking to cancel. Returns cancelled:true, or ok:false with their bookings.",
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/wa-tool-manage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-wa-key",
+              "value": "R6ap2WP09Hw65PQmOrExaDH"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $('Client Config').first().json.client_id }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $('Client Config').first().json.wa_id }}"
+            },
+            {
+              "name": "action",
+              "value": "cancel"
+            },
+            {
+              "name": "booking_id",
+              "value": "={{ $fromAI('booking_id', 'Booking ID from find_bookings, e.g. WA-261015-AB12', 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7166e84c-bbd3-4775-b34b-08e90570b1e7",
+      "name": "cancel_booking",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        4464,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Moves one of the customer's bookings to a new date/time (same service). Only call AFTER check_availability showed the new time is free and the customer confirmed. Returns rescheduled:true, or rescheduled:false with reason and alternatives.",
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/wa-tool-manage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-wa-key",
+              "value": "R6ap2WP09Hw65PQmOrExaDH"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $('Client Config').first().json.client_id }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $('Client Config').first().json.wa_id }}"
+            },
+            {
+              "name": "action",
+              "value": "reschedule"
+            },
+            {
+              "name": "booking_id",
+              "value": "={{ $fromAI('booking_id', 'Booking ID from find_bookings', 'string') }}"
+            },
+            {
+              "name": "new_date",
+              "value": "={{ $fromAI('new_date', 'New date in YYYY-MM-DD format', 'string') }}"
+            },
+            {
+              "name": "new_time",
+              "value": "={{ $fromAI('new_time', 'New time in 24h HH:mm format', 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f7243264-f80e-4e3c-8a63-945a1f40c597",
+      "name": "reschedule_booking",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        4656,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1. Receive message\nMeta webhook verify (GET) + incoming messages (POST)\nParse, dedupe (Postgres) and load client config from Master Config sheet",
+        "height": 620,
+        "width": 1200,
+        "color": 7
+      },
+      "id": "ec4c94a3-b07e-4838-b00b-bc869b7be55d",
+      "name": "Sticky Main 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Handoff routing\nOwner #command / paused chat / normal AI",
+        "height": 240,
+        "width": 680,
+        "color": 6
+      },
+      "id": "f86642c4-ce0a-4ca0-b4a6-472fd42a2951",
+      "name": "Sticky Main 2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Owner commands & paused chats\n#status #on #off #reply #help -> reply to owner\nPaused customer -> email to owner (AI silent)",
+        "height": 420,
+        "width": 700,
+        "color": 3
+      },
+      "id": "c120e41f-5e36-4e56-8c52-764067cc741a",
+      "name": "Sticky Main 3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1904,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Read receipt + 7s debounce\nRapid messages merged into one reply",
+        "height": 340,
+        "width": 1140,
+        "color": 4
+      },
+      "id": "78952972-f270-4d6a-8df8-928060883507",
+      "name": "Sticky Main 4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1952,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Voice notes & photos\nVoice -> OpenAI transcription | Photo -> vision analysis | other types -> not supported reply",
+        "height": 560,
+        "width": 1440,
+        "color": 2
+      },
+      "id": "3a3ede6f-4376-4d87-884c-30f1ebc2c192",
+      "name": "Sticky Main 5",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2352,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 6. AI Agent & reply\nFresh menu + language tag -> AI Agent (memory + tools) -> WhatsApp reply",
+        "height": 380,
+        "width": 1720,
+        "color": 5
+      },
+      "id": "e7af6efc-3ebe-46e2-80c0-e761507eb8e3",
+      "name": "Sticky Main 6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3088,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Privacy policy page\nGET /webhook/privacy (used for Google OAuth app)",
+        "height": 380,
+        "width": 560
+      },
+      "id": "0a856212-715a-4977-9e52-8a406b113b2c",
+      "name": "Sticky Privacy",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        2160
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook GET (Meta verify)": {
+      "main": [
+        [
+          {
+            "node": "Verify Token OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Token OK?": {
+      "main": [
+        [
+          {
+            "node": "Return Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject 403",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook POST (messages)": {
+      "main": [
+        [
+          {
+            "node": "Parse Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Webhook": {
+      "main": [
+        [
+          {
+            "node": "Dedupe (insert message ID)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe (insert message ID)": {
+      "main": [
+        [
+          {
+            "node": "Is New Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New Message?": {
+      "main": [
+        [
+          {
+            "node": "Get Master Config",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Duplicate - Ignore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Master Config": {
+      "main": [
+        [
+          {
+            "node": "Client Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Client Config": {
+      "main": [
+        [
+          {
+            "node": "Handoff Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message Type": {
+      "main": [
+        [
+          {
+            "node": "Buffer Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Voice Note?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Not Supported Yet": {
+      "main": [
+        [
+          {
+            "node": "Prepare Unsupported Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Unsupported Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Agent Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buffer Message": {
+      "main": [
+        [
+          {
+            "node": "Wait 7s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 7s": {
+      "main": [
+        [
+          {
+            "node": "Is Latest Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Latest Message?": {
+      "main": [
+        [
+          {
+            "node": "Latest?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Latest?": {
+      "main": [
+        [
+          {
+            "node": "Collect Messages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Newer Message Will Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Messages": {
+      "main": [
+        [
+          {
+            "node": "Load Services",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Agent Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_availability": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "book_appointment": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Services": {
+      "main": [
+        [
+          {
+            "node": "Load Packages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Packages": {
+      "main": [
+        [
+          {
+            "node": "Build Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Menu": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Voice Note?": {
+      "main": [
+        [
+          {
+            "node": "Get Audio URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Photo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Audio URL": {
+      "main": [
+        [
+          {
+            "node": "Download Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Audio": {
+      "main": [
+        [
+          {
+            "node": "Name Audio File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Name Audio File": {
+      "main": [
+        [
+          {
+            "node": "Transcribe Voice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe Voice": {
+      "main": [
+        [
+          {
+            "node": "Voice To Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voice To Text": {
+      "main": [
+        [
+          {
+            "node": "Transcribed OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribed OK?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Unsupported Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buffer Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Photo?": {
+      "main": [
+        [
+          {
+            "node": "Get Image URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not Supported Yet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Image URL": {
+      "main": [
+        [
+          {
+            "node": "Download Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Image": {
+      "main": [
+        [
+          {
+            "node": "Image To Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image To Base64": {
+      "main": [
+        [
+          {
+            "node": "Analyze Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Photo": {
+      "main": [
+        [
+          {
+            "node": "Photo To Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Photo To Text": {
+      "main": [
+        [
+          {
+            "node": "Buffer Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avail Webhook": {
+      "main": [
+        [
+          {
+            "node": "Avail Master Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avail Master Config": {
+      "main": [
+        [
+          {
+            "node": "Pick Client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Client": {
+      "main": [
+        [
+          {
+            "node": "Get Services",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Services": {
+      "main": [
+        [
+          {
+            "node": "Get Packages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Packages": {
+      "main": [
+        [
+          {
+            "node": "Get Day Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Day Events": {
+      "main": [
+        [
+          {
+            "node": "Compute Slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Slots": {
+      "main": [
+        [
+          {
+            "node": "Respond Availability",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Book Webhook": {
+      "main": [
+        [
+          {
+            "node": "Book Master Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Book Master Config": {
+      "main": [
+        [
+          {
+            "node": "Pick Client (Book)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Client (Book)": {
+      "main": [
+        [
+          {
+            "node": "Book Services",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Book Services": {
+      "main": [
+        [
+          {
+            "node": "Book Packages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Book Packages": {
+      "main": [
+        [
+          {
+            "node": "Book Day Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Book Day Events": {
+      "main": [
+        [
+          {
+            "node": "Validate Booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Booking": {
+      "main": [
+        [
+          {
+            "node": "Slot OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Calendar Event": {
+      "main": [
+        [
+          {
+            "node": "Build Booking Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Booking Row": {
+      "main": [
+        [
+          {
+            "node": "Save To Bookings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save To Bookings": {
+      "main": [
+        [
+          {
+            "node": "Email Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Owner": {
+      "main": [
+        [
+          {
+            "node": "Respond Booked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slot OK?": {
+      "main": [
+        [
+          {
+            "node": "Create Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Not Booked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Privacy Page": {
+      "main": [
+        [
+          {
+            "node": "Serve Privacy HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handoff Check": {
+      "main": [
+        [
+          {
+            "node": "Route Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Message": {
+      "main": [
+        [
+          {
+            "node": "Route Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Switch": {
+      "main": [
+        [
+          {
+            "node": "Parse Owner Command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Forward To Owner",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Read + Typing",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Message Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Owner Command": {
+      "main": [
+        [
+          {
+            "node": "Run Owner Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Owner Command": {
+      "main": [
+        [
+          {
+            "node": "Owner Replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Owner Replies": {
+      "main": [
+        [
+          {
+            "node": "Send Agent Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handoff Webhook": {
+      "main": [
+        [
+          {
+            "node": "Handoff Master Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handoff Master Config": {
+      "main": [
+        [
+          {
+            "node": "Pick Client (Handoff)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Client (Handoff)": {
+      "main": [
+        [
+          {
+            "node": "Set Handoff Flag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Handoff Flag": {
+      "main": [
+        [
+          {
+            "node": "Email Owner (Handoff)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Owner (Handoff)": {
+      "main": [
+        [
+          {
+            "node": "Respond Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manage Webhook": {
+      "main": [
+        [
+          {
+            "node": "Manage Master Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manage Master Config": {
+      "main": [
+        [
+          {
+            "node": "Pick Client (Manage)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Client (Manage)": {
+      "main": [
+        [
+          {
+            "node": "Read Bookings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Bookings": {
+      "main": [
+        [
+          {
+            "node": "Find Booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Booking": {
+      "main": [
+        [
+          {
+            "node": "Manage Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manage Switch": {
+      "main": [
+        [
+          {
+            "node": "Respond Manage",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Delete Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Manage Services",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Calendar Event": {
+      "main": [
+        [
+          {
+            "node": "Cancel Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Row": {
+      "main": [
+        [
+          {
+            "node": "Mark Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Cancelled": {
+      "main": [
+        [
+          {
+            "node": "Email Owner (Cancel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Owner (Cancel)": {
+      "main": [
+        [
+          {
+            "node": "Respond Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manage Services": {
+      "main": [
+        [
+          {
+            "node": "Manage Packages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manage Packages": {
+      "main": [
+        [
+          {
+            "node": "Manage Day Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manage Day Events": {
+      "main": [
+        [
+          {
+            "node": "Validate Reschedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Reschedule": {
+      "main": [
+        [
+          {
+            "node": "Resched OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resched OK?": {
+      "main": [
+        [
+          {
+            "node": "Update Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Not Rescheduled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Calendar Event": {
+      "main": [
+        [
+          {
+            "node": "Resched Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resched Row": {
+      "main": [
+        [
+          {
+            "node": "Update Booking Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Booking Row": {
+      "main": [
+        [
+          {
+            "node": "Email Owner (Reschedule)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Owner (Reschedule)": {
+      "main": [
+        [
+          {
+            "node": "Respond Rescheduled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "transfer_to_human": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "find_bookings": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cancel_booking": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "reschedule_booking": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "4edc2f86-a600-4119-88ea-dfc2645967e9",
+  "meta": {
+    "instanceId": "193fe0c73bc4de84a18d8a3d7cb3987abe33a10af62adfbccb7b9d6cc5132a80"
+  },
+  "id": "LmVv5wXgTV04tiQK",
+  "tags": []
+}
