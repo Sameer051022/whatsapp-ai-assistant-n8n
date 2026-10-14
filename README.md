@@ -8,7 +8,6 @@ Built for salons, spas, clinics and other appointment-based businesses, especial
 
 ![WhatsApp AI Assistant workflow](Whatsapp%20AI%20Assistant.jpg)
 
-The full n8n workflow is in [`WhatsApp AI Assistant.json`](WhatsApp%20AI%20Assistant.json).
 
 ## What it does
 
