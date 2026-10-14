@@ -8,7 +8,6 @@ Built for salons, spas, clinics and other appointment-based businesses, especial
 
 ![WhatsApp AI Assistant workflow](Whatsapp%20AI%20Assistant.jpg)
 
-
 ## What it does
 
 - **Answers on WhatsApp 24/7**, in English for English messages and in Roman Urdu for Urdu or Roman Urdu messages
@@ -84,12 +83,12 @@ WhatsApp Cloud API ──► n8n Webhook ──► Parse + Dedupe (Postgres)
 1. Run n8n and PostgreSQL in Docker, then create the `wa_app` database and its tables (`processed_messages`, `message_buffer`, `handoff_flags`).
 2. In Meta for Developers, create an app with the WhatsApp product, generate a permanent System User token, and note the Phone Number ID and WABA ID.
 3. In n8n, create the credentials: WhatsApp (Header Auth bearer token), Postgres, Google Sheets, Google Calendar, Gmail and OpenAI.
-4. Import `WhatsApp AI Assistant.json` from this repo and assign the credentials to the nodes.
+4. Build or import the workflow and assign the credentials to the nodes (the workflow file is available on request).
 5. Create the Master Config sheet and the client sheet (Services, Packages, Bookings tabs) and a Google Calendar. Put their IDs in the Config row.
 6. Publish the workflow and set the Meta webhook to `https://<your-domain>/webhook/wa-assistant`, subscribed to `messages`.
 7. Send a WhatsApp message to the business number and test text, voice, photo, booking, cancel and `#status`.
 
-> Keep tokens, API keys and sheet IDs out of the repository. The exported workflow references n8n credentials by name only.
+> Keep tokens, API keys and sheet IDs out of the repository.
 
 ## Author
 
