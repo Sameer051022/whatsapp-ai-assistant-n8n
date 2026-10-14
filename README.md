@@ -4,9 +4,11 @@ An AI receptionist that runs on the official WhatsApp Cloud API. It answers cust
 
 Built for salons, spas, clinics and other appointment-based businesses, especially in Pakistan, where customers mix English, Urdu and Roman Urdu.
 
-## Workflow
+## Demo
 
-![WhatsApp AI Assistant workflow](Whatsapp%20AI%20Assistant.jpg)
+[![WhatsApp AI Assistant demo](Whatsapp%20AI%20Assistant.jpg)](WhatsApp_AI_Assistant_Demo.mp4)
+
+**[▶ Watch the demo video (3 min)](WhatsApp_AI_Assistant_Demo.mp4)**
 
 ## What it does
 
